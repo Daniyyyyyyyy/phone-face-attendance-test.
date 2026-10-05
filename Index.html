@@ -1,1 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111827">
+  <title>Phone Face Attendance Test</title>
 
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #111827;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      max-width: 520px;
+      margin: auto;
+      padding: 20px 16px 30px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #9ca3af;
+      margin-bottom: 18px;
+    }
+
+    .camera {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      background: black;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid #374151;
+    }
+
+    video,
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    video {
+      transform: scaleX(-1);
+    }
+
+    canvas {
+      pointer-events: none;
+    }
+
+    .status {
+      margin: 14px 0;
+      padding: 14px;
+      border-radius: 12px;
+      background: #1f2937;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    button {
+      width: 100%;
+      padding: 15px;
+      border: none;
+      border-radius: 12px;
+      background: #2563eb;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+    }
+
+    .note {
+      margin-top: 14px;
+      color: #9ca3af;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+
+<body>
+
+  <main class="app">
+
+    <h1>Phone Face Attendance Test</h1>
+
+    <div class="subtitle">
+      Step 1: Camera + Face Detection
+    </div>
+
+    <div class="camera">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="status" class="status">
+      Camera not started
+    </div>
+
+    <button id="startButton">
+      Start Camera
+    </button>
+
+    <div class="note">
+      This is only the first technical test.
+      It does not identify employees or record attendance yet.
+    </div>
+
+  </main>
+
+  <script type="module">
+
+    import {
+      FaceDetector,
+      FilesetResolver
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const startButton = document.getElementById("startButton");
+
+    let detector = null;
+    let detecting = false;
+
+    async function setupDetector() {
+
+      status.textContent = "Loading face detector...";
+
+      const vision =
+        await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+        );
+
+      detector =
+        await FaceDetector.createFromOptions(
+          vision,
+          {
+            baseOptions: {
+              modelAssetPath:
+                "https://storage.googleapis.com/mediapipe-models/face_detector/face_detector/float16/1/face_detector.tflite",
+
+              delegate: "GPU"
+            },
+
+            runningMode: "VIDEO",
+
+            minDetectionConfidence: 0.5
+          }
+        );
+    }
+
+    async function startCamera() {
+
+      try {
+
+        startButton.disabled = true;
+
+        if (!detector) {
+          await setupDetector();
+        }
+
+        status.textContent =
+          "Requesting camera permission...";
+
+        const stream =
+          await navigator.mediaDevices.getUserMedia({
+
+            video: {
+              facingMode: "user",
+              width: {
+                ideal: 720
+              },
+              height: {
+                ideal: 960
+              }
+            },
+
+            audio: false
+
+          });
+
+        video.srcObject = stream;
+
+        await video.play();
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        status.textContent =
+          "Looking for a face...";
+
+        detecting = true;
+
+        detectLoop();
+
+      } catch (error) {
+
+        console.error(error);
+
+        status.textContent =
+          "Camera error: " +
+          (error.message || error.name);
+
+        startButton.disabled = false;
+      }
+    }
+
+    function detectLoop() {
+
+      if (!detecting) {
+        return;
+      }
+
+      try {
+
+        const result =
+          detector.detectForVideo(
+            video,
+            performance.now()
+          );
+
+        const faces =
+          result.detections || [];
+
+        ctx.clearRect(
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        if (faces.length === 0) {
+
+          status.textContent =
+            "Looking for a face...";
+
+        } else {
+
+          status.textContent =
+            faces.length === 1
+              ? "FACE DETECTED"
+              : faces.length + " FACES DETECTED";
+
+          ctx.strokeStyle = "#22c55e";
+          ctx.lineWidth = 5;
+
+          for (const detection of faces) {
+
+            const box =
+              detection.boundingBox;
+
+            if (!box) {
+              continue;
+            }
+
+            ctx.strokeRect(
+              box.originX,
+              box.originY,
+              box.width,
+              box.height
+            );
+          }
+        }
+
+      } catch (error) {
+
+        console.error(error);
+
+      }
+
+      requestAnimationFrame(detectLoop);
+    }
+
+    startButton.addEventListener(
+      "click",
+      startCamera
+    );
+
+  </script>
+
+</body>
+</html>
